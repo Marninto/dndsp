@@ -10,7 +10,7 @@ import discord
 from embed_wrapper import EmbedMsg
 from constants import dnd_ability_map, skill_ability_map, dnd_class_proficiency_map
 from model import check_onboard_status, check_player_chars, generate_quickbuild_character, get_score_modifier, \
-    get_class_id_from_name, get_char_ability_details, fetch_race_map, generate_custom_char
+    get_class_id_from_name, get_char_ability_details, fetch_race_ability_and_id_map, generate_custom_char, update_char_gen_progress
 from utilities import generate_name_local, dice_roll
 
 
@@ -20,11 +20,28 @@ class PlayerChar:
         self.enrolled = self.check_enroll()
         if not self.enrolled:
             self.ctx.send('Please enroll with !enroll command first')
+        self.char_id = 0
+        self.creation_stage = 0
+        self.character_data = {}
 
     def check_enroll(self):
         return check_onboard_status(self.ctx.author.id)
 
-    async def roll_build_char(self, bot):
+    def check(self, msg):
+        return msg.author == self.ctx.author and msg.channel == self.ctx.channel
+
+    async def roll_build_char(self, bot, char_id, creation_stage):
+        if char_id:
+            self.char_id = char_id
+        if creation_stage:
+            self.creation_stage = creation_stage
+        if not self.creation_stage:
+            await self.generate_char_phase_one(bot)
+        if self.creation_stage == 1:
+            await self.generate_char_race(bot)
+
+    # phase one makes the first entry in db. no update before this is permanent
+    async def generate_char_phase_one(self, bot):
         def check(msg):
             return msg.author == self.ctx.author and msg.channel == self.ctx.channel
 
@@ -45,38 +62,46 @@ class PlayerChar:
         custom_ability_map = {}
         for ability, value in dnd_ability_map.items():
             custom_ability_map[ability] = character_data.get(ability)
+        self.character_data = character_data
 
         char_id = generate_custom_char(custom_ability_map, character_data['name'], character_data['HP'], self.enrolled)
-
+        self.creation_stage = 1
+        self.char_id = char_id
         await self.ctx.send(f"Character base generated\nName: {character_data['name']}\nCharacter ID: {char_id}")
+        return char_id
 
-        # Pick character race
+    async def generate_char_race(self, bot):
         await self.ctx.send("Pick your race:")
-        race_map = fetch_race_map()
-        race_modifier_str = "\n".join(f"{', '.join(f'{k}:+{v}' for k, v in json.loads(value).items())}" for key, value in race_map.items())
+        race_ability_map, race_id_map = fetch_race_ability_and_id_map()
+        race_modifier_str = "\n".join(
+            f"{', '.join(f'{k}:+{v}' for k, v in json.loads(value).items())}" for key, value in race_ability_map.items())
 
         race_embed = discord.Embed(title="Races", color=0x00FF00)
-        race_embed.add_field(name="Available Races", value='\n'.join(race_map.keys()), inline=True)
+        race_embed.add_field(name="Available Races", value='\n'.join(race_ability_map.keys()), inline=True)
         race_embed.add_field(name="Score Modifiers", value=race_modifier_str, inline=True)
         race_embed.add_field(name="Selected Race", value="None", inline=True)
 
         race_message = await self.ctx.send(embed=race_embed)
 
         while True:
-            race_msg = await bot.wait_for('message', check=check, timeout=60)
-            user_race = race_msg.content.strip().lower()
-            matched_race = next((race for race in race_map.keys() if race.lower() == user_race), None)
+            try:
+                race_msg = await bot.wait_for('message', check=self.check, timeout=60)
+                user_race = race_msg.content.strip().lower()
+                matched_race = next((race for race in race_ability_map.keys() if race.lower() == user_race), None)
 
-            if matched_race:
-                character_data['race'] = matched_race
-                race_embed.set_field_at(2, name="Selected Race", value=matched_race, inline=True)
-                await race_message.edit(embed=race_embed)
-                break
-            else:
-                await self.ctx.send('Invalid input, please type a valid race.')
+                if matched_race:
+                    self.character_data['race'] = matched_race
+                    race_embed.set_field_at(2, name="Selected Race", value=matched_race, inline=True)
+                    await race_message.edit(embed=race_embed)
+                    break
+                else:
+                    await self.ctx.send('Invalid input, please type a valid race.')
+            except asyncio.TimeoutError:
+                await self.ctx.send('No input received. Please try again')
 
-        # Save character data (replace with your desired method of saving character data)
-        print(character_data)
+        update_char_gen_progress(self.char_id, "race_id", race_id_map[self.character_data['race']], self.creation_stage + 1)
+        await self.ctx.send(f'Race Selected: {self.character_data["race"]}')
+        await self.ctx.send('Bg and proficiency left')
 
     def quick_build_char(self):
         try:
@@ -114,22 +139,23 @@ class PlayerChar:
         player_data = json.loads(check_player_chars(user_id))
         if not player_data['success']:
             if 'player_id' in player_data and player_data['player_id'] == 0:
-                return None
+                return 0, 0
             else:
                 char_id = player_data.get('player_id')
         else:
             char_id = player_data['player_id']
-        return char_id
+        return char_id, player_data.get('creation_stage', 0)
 
     def char_skill_data(self, char_id=None, user_id=None):
         if char_id is None:
-            char_id = self.fetch_latest_char_id(user_id=user_id)
+            char_id, _ = self.fetch_latest_char_id(user_id=user_id)
             if not char_id:
                 return "No character found", False
         char_data = json.loads(get_char_ability_details(char_id))
+        print(char_data)
 
         ability_map = json.loads(char_data['ability_map'])
-        ability_score_improve = json.loads(char_data['ability_score_improve'])
+        ability_score_improve = json.loads(char_data['ability_score_improve']) if char_data['ability_score_improve'] and char_data['ability_score_improve']!="None" else {}
         ability_map_modifier = deepcopy(ability_map)
         for ability, modifier in ability_score_improve.items():
             ability_map_modifier[ability] += modifier
@@ -140,8 +166,10 @@ class PlayerChar:
         for skill, ability in skill_modifier_map.items():
             skill_modifier_map[skill] = ability_map_modifier[ability]
 
-        picked_proficiencies = char_data['picked_proficiencies'].split(', ')
-        proficiency_list = ast.literal_eval(char_data['proficiency_list'])
+        picked_proficiencies = char_data['picked_proficiencies'].split(', ') if char_data['picked_proficiencies'] else []
+        proficiency_list = []
+        if picked_proficiencies:
+            proficiency_list = ast.literal_eval(char_data['proficiency_list'])
 
         for skill in (picked_proficiencies + proficiency_list):
             skill_modifier_map[skill] += 2
@@ -159,7 +187,7 @@ class PlayerChar:
 
     def char_sheet_ability(self, char_id=None, user_id=None):
         if char_id is None:
-            char_id = self.fetch_latest_char_id(user_id=user_id)
+            char_id, _ = self.fetch_latest_char_id(user_id=user_id)
             if not char_id:
                 return discord.Embed(title=f'Create character using !create or view others char using !ci <char_id>'), False
         char_data = get_char_ability_details(char_id)
@@ -215,7 +243,10 @@ class CharacterRollButton(discord.ui.Button):
         if self.ability == 'HP':
             roll_value = dice_roll(1, 6, self.character_data['CON'], 0, 0)[0]
         else:
-            roll_value = dice_roll(1, 20, 0, 0, 0)[0]
+            dice_roll_value = dice_roll(4, 6, 0, 3, 0)
+            roll_value = 0
+            for roll in dice_roll_value:
+                roll_value += roll
             if self.ability == 'CON':
                 hp_button = next((item for item in self.view.children if item.custom_id == "HP"), None)
                 hp_button.disabled = False
@@ -232,7 +263,7 @@ class CharacterRollView(discord.ui.View):
         super().__init__(timeout=120)
         self.user = user
         for ability in abilities:
-            self.add_item(CharacterRollButton(ability=ability, character_data=character_data, custom_id=ability, label=f"Roll for {ability}", disabled=True if ability == 'HP' else False))
+            self.add_item(CharacterRollButton(ability=ability, character_data=character_data, user=user, custom_id=ability, label=f"Roll for {ability}", disabled=True if ability == 'HP' else False))
 
     async def wait_until_all_disabled(self):
         while not all(item.disabled for item in self.children):

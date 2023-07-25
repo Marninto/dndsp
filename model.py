@@ -72,8 +72,9 @@ def check_onboard_status(discord_id):
 def update_char_gen_progress(char_id, progress_state, progress_value, creation_stage):
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
-    update_query = f"UPDATE characters SET {progress_state} = %s, creation_stage = %s WHERE char_id = %s"
-    cursor.execute(update_query, (progress_value, creation_stage, char_id))
+    update_query = f"UPDATE player_characters SET {progress_state} = {progress_value}, creation_stage = {creation_stage} WHERE id = {char_id}"
+    cursor.execute(update_query)
+    conn.commit()
     cursor.close()
     conn.close()
 
@@ -89,11 +90,11 @@ def check_player_chars(discord_id):
         conn.close()
         return data
     else:
-        query = "SELECT id FROM player_characters WHERE player_id = %s"
+        query = "SELECT id, creation_stage FROM player_characters WHERE player_id = %s"
         cursor.execute(query, (player_id[0],))
         char_id_qs = cursor.fetchall()
         if len(char_id_qs) >= 1:
-            data = json.dumps({'success': True, 'player_id': char_id_qs[-1][0] if char_id_qs else None})
+            data = json.dumps({'success': True, 'player_id': char_id_qs[-1][0] if char_id_qs else 0, 'creation_stage': char_id_qs[-1][1] if char_id_qs else 0})
         else:
             data = json.dumps({'success': False, 'count': 0})
         cursor.close()
@@ -104,7 +105,7 @@ def check_player_chars(discord_id):
 def get_char_ability_details(char_id):
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
-    cursor.execute(f"""SELECT pc.char_name, pc.ability_map, pc.char_freeze, pc.picked_proficiencies, pb.bg_name, pb.proficiency_list, 
+    cursor.execute(f"""SELECT pc.char_name, pc.ability_map, pc.creation_stage, pc.picked_proficiencies, pb.bg_name, pb.proficiency_list, 
                     pc.ability_score_improve, cl.hit_dice, cl.class_name, cl.saving_throw_proficiency, pc.max_hp, pr.race_name 
                     FROM player_characters AS pc
                     left JOIN player_backgrounds AS pb ON pc.background_id = pb.id 
@@ -115,7 +116,7 @@ def get_char_ability_details(char_id):
     data = None if result is None else json.dumps({
             'char_name': result[0],
             'ability_map': result[1],
-            'char_freeze': result[2],
+            'creation_stage': result[2],
             'picked_proficiencies': result[3],
             'bg_name': result[4],
             'proficiency_list': result[5],
@@ -131,17 +132,19 @@ def get_char_ability_details(char_id):
     return data
 
 
-def fetch_race_map():
+def fetch_race_ability_and_id_map():
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
-    cursor.execute(f"""SELECT race_name, ability_modifier FROM player_races""")
+    cursor.execute(f"""SELECT race_name, ability_modifier, id FROM player_races""")
     result = cursor.fetchall()
-    data = {}
+    race_ability_map = {}
+    race_id_map = {}
     for race_data in result:
-        data[race_data[0]] = race_data[1]
+        race_ability_map[race_data[0]] = race_data[1]
+        race_id_map[race_data[0]] = race_data[2]
     cursor.close()
     conn.close()
-    return data
+    return race_ability_map, race_id_map
 
 
 def generate_custom_char(ability_map, char_name, max_hp, player_id):
@@ -151,18 +154,15 @@ def generate_custom_char(ability_map, char_name, max_hp, player_id):
     # Prepare the INSERT statement
     query = """
         INSERT INTO player_characters (char_name, class_id, player_id, ability_map, 
-        char_freeze, max_hp) 
+        creation_stage, max_hp) 
         VALUES (%s, %s, %s, %s, %s, %s)
         """
     # Convert the maps to JSON strings
     ability_map_json = json.dumps(ability_map)
 
-    # Set char_freeze to False as the character is newly created
-    char_freeze = False
-
     # Execute the query
     cursor.execute(query, (char_name, 12, player_id, ability_map_json,
-                           char_freeze, max_hp))
+                           1, max_hp))
     inserted_id = cursor.lastrowid
 
     # Commit the transaction
@@ -252,3 +252,27 @@ def get_score_modifier(race_id):
     conn.close()
 
     return ability_modifier
+
+
+def verify_char_for_user(discord_id, char_id):
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor()
+
+    # Prepare the SELECT statement
+    query = """
+        SELECT id FROM discord_summary WHERE discord_id = %s
+        """
+    cursor.execute(query, (discord_id,))
+
+    # Fetch the result
+    user_result = cursor.fetchone()
+    if not user_result:
+        return False, False, 0
+    query = """
+            SELECT player_id, creation_stage FROM player_characters WHERE id = %s
+            """
+    cursor.execute(query, (char_id,))
+    result = cursor.fetchone()
+    if result and result[0] == user_result[0]:
+        return True, True, result[1]
+    return True, False, 0

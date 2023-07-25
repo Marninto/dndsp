@@ -14,7 +14,7 @@ class PageIntent(View):
         self.page = 0
         self.message = None
         if not self.char_id:
-            self.char_id = PlayerChar(ctx).fetch_latest_char_id(user_id=user_id)
+            self.char_id, _ = PlayerChar(ctx).fetch_latest_char_id(user_id=user_id)
 
     async def send_initial_message(self, ctx):
         self.message = await ctx.send(embed=self.current_page(), view=self)
@@ -28,11 +28,15 @@ class PageIntent(View):
 
     @discord.ui.button(label="Previous", style=discord.ButtonStyle.blurple)
     async def on_previous_page(self, interaction, button):
+        if interaction.user.id != self.user_id:
+            return
         self.page = max(self.page - 1, 0)
         await interaction.response.edit_message(embed=self.current_page())
 
     @discord.ui.button(label="Next", style=discord.ButtonStyle.blurple)
     async def on_next_page(self, interaction, button):
+        if interaction.user.id != self.user_id:
+            return
         self.page = min(self.page + 1, len(self.functions) - 1)
         await interaction.response.edit_message(embed=self.current_page())
 
