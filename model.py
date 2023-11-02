@@ -25,7 +25,7 @@ def enroll(discord_id):
             add_character = ("INSERT INTO discord_summary "
                              "(discord_id, daily_tokens, gold, daily_refresh, created) "
                              "VALUES (%s, %s, %s, %s, %s)")
-            data_character = (discord_id, 0, 0, datetime.datetime.now(), datetime.datetime.now())
+            data_character = (discord_id, 1, 100, datetime.datetime.now(), datetime.datetime.now())
             cursor.execute(add_character, data_character)
             cnx.commit()
 
@@ -33,7 +33,6 @@ def enroll(discord_id):
             cnx.close()
             return True, 'created'
     except Exception as e:
-        print(e)
         return False, e
 
 
@@ -72,12 +71,18 @@ def check_onboard_status(discord_id):
 def update_char_gen_progress(char_id, progress_state, progress_value, creation_stage):
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
-    update_query = f"UPDATE player_characters SET {progress_state} = {progress_value}, creation_stage = {creation_stage} WHERE id = {char_id}"
-    cursor.execute(update_query)
+
+    if isinstance(progress_value, str):
+        update_query = "UPDATE player_characters SET {} = %s, creation_stage = %s WHERE id = %s".format(progress_state)
+        cursor.execute(update_query, (progress_value, creation_stage, char_id))
+    else:
+        progress_value = json.dumps(progress_value)
+        update_query = "UPDATE player_characters SET {} = JSON_MERGE_PATCH(IFNULL({}, '{{}}'), %s), creation_stage = %s WHERE id = %s".format(progress_state, progress_state)
+        cursor.execute(update_query, (progress_value, creation_stage, char_id))
+
     conn.commit()
     cursor.close()
     conn.close()
-
 
 def check_player_chars(discord_id):
     conn = mysql.connector.connect(**db_config)
@@ -145,6 +150,21 @@ def fetch_race_ability_and_id_map():
     cursor.close()
     conn.close()
     return race_ability_map, race_id_map
+
+
+def fetch_bg_ability_and_id_map():
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor()
+    cursor.execute(f"""SELECT bg_name, proficiency_list, id FROM player_backgrounds""")
+    result = cursor.fetchall()
+    bg_ability_map = {}
+    bg_id_map = {}
+    for race_data in result:
+        bg_ability_map[race_data[0]] = json.loads(race_data[1])
+        bg_id_map[race_data[0]] = race_data[2]
+    cursor.close()
+    conn.close()
+    return bg_ability_map, bg_id_map
 
 
 def generate_custom_char(ability_map, char_name, max_hp, player_id):

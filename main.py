@@ -17,15 +17,13 @@ from player_char import PlayerChar
 from utilities import dice_roll, discord_logger
 
 intents = discord.Intents.all()
-client = discord.Client(intents=intents)
-
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 
-@client.event
+@bot.event
 async def on_ready():
-    print(f'Logged in as {client.user}')
+    print(f'Logged in as {bot.user}')
 
 
 @bot.command(name='enroll')
@@ -35,9 +33,9 @@ async def user_enroll(ctx):
     if not success:
         await ctx.send(f'Enrolling failed. please connect to {tag_marn}')
     elif success and status == 'exists':
-        await ctx.send('Already enrolled')
+        await ctx.send('Already enrolled - you can start creating character with !create command')
     else:
-        await ctx.send('Enrolled successfully - you can start creating character with create command')
+        await ctx.send('Enrolled successfully - you can start creating character with !create command')
 
 
 @bot.command(name='create')
