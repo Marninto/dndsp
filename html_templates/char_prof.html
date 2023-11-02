@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Proficiency Selection</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f3e7c9;
+            color: #5c4832;
+            font-size: 12px;
+            padding: 20px;
+        }
+
+        .container {
+            padding: 15px;
+            border: 8px double #5c4832;
+            border-radius: 10px;
+            max-width: 700px;
+            margin: auto;
+            background: linear-gradient(135deg, #f3e7c9, #e6d1ab, #f3e7c9);
+        }
+
+        .header {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #5c4832;
+        }
+
+        .subtitle {
+            font-size: 16px;
+            font-weight: bold;
+            color: #5c4832;
+            margin-bottom: 5px;
+        }
+
+        .column {
+            width: 45%;
+        }
+
+        .columns {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .picked {
+            text-align: right;
+        }
+
+        ul {
+            padding-left: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">Proficiency Selection</div>
+
+        <div class="columns">
+            <div class="column">
+                {% if data.recommended_proficiencies %}
+                <div class="subtitle">Recommended Proficiencies</div>
+                <ul>
+                    {% for proficiency in data.recommended_proficiencies %}
+                    <li>{{ proficiency }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+
+                {% if data.other_proficiencies %}
+                <div class="subtitle">Other Proficiencies</div>
+                <ul>
+                    {% for proficiency in data.other_proficiencies %}
+                    <li>{{ proficiency }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+
+            <div class="column picked">
+                {% if data.picked_proficiencies %}
+                <div class="subtitle">Picked Proficiencies</div>
+                <ul>
+                    {% for proficiency in data.picked_proficiencies %}
+                    <li>{{ proficiency }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</body>
+</html>

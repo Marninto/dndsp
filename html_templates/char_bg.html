@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Background Selection</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f3e7c9;
+            color: #5c4832;
+            font-size: 12px; /* Reduced font-size */
+            padding: 20px;
+        }
+
+        .container {
+            padding: 15px;
+            border: 8px double #5c4832;
+            border-radius: 10px;
+            max-width: 700px;
+            margin: auto;
+            background: linear-gradient(135deg, #f3e7c9, #e6d1ab, #f3e7c9);
+        }
+
+        .header {
+            font-size: 18px; /* Reduced font-size */
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #5c4832;
+        }
+
+        .subtitle {
+            font-size: 16px; /* Reduced font-size */
+            font-weight: bold;
+            color: #5c4832;
+            margin-bottom: 5px;
+        }
+
+        table {
+            width: 100%;
+            margin-bottom: 15px;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 5px;
+            border: 1px solid #5c4832; /* Added borders */
+            text-align: left;
+        }
+
+        .footer {
+            font-size: 12px; /* Reduced font-size */
+            color: #5c4832;
+        }
+
+        .bold {
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header" id="backgroundHeader">
+            Background</div> <!-- Conditional rendering here -->
+
+        {% if data.background_map %}
+<div class="subtitle">Recommended Backgrounds</div>
+<table>
+    <tr>
+        <th>Background</th>
+        <th>Skills</th>
+    </tr>
+    {% for background, modifiers in data.background_map.items() %}
+    <tr>
+        <td>{{ background }}</td>
+        <td>{{ modifiers }}</td>
+    </tr>
+    {% endfor %}
+</table>
+{% endif %}
+
+        {% if data.other_background_map %}
+<div class="subtitle">Other Backgrounds</div>
+<table>
+    <tr>
+        <th>Background</th>
+        <th>Skills</th>
+    </tr>
+    {% for background, modifiers in data.other_background_map.items() %}
+    <tr>
+        <td>{{ background }}</td>
+        <td>{{ modifiers }}</td>
+    </tr>
+    {% endfor %}
+</table>
+{% endif %}
+
+        <div class="footer">
+            Type <span class="bold">random</span> for random pick
+        </div>
+    </div>
+</body>
+
+</html>
