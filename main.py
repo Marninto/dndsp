@@ -1,5 +1,6 @@
 import asyncio
 import traceback
+from functools import partial
 
 import discord
 from discord.ui import View
@@ -75,11 +76,17 @@ async def user_charinfo(ctx, char_id=None):
     try:
         discord_id = ctx.author.id
         player_char = PlayerChar(ctx)
-        functions = [
-            player_char.char_sheet_ability,
-            player_char.char_skill_data,
-        ]
-        view = PageIntent(functions, char_id, discord_id, ctx)
+        if not char_id:
+            char_id, _ = PlayerChar(ctx).fetch_latest_char_id(user_id=discord_id)
+        async def char_sheet_ability_coro():
+            return await player_char.char_sheet_ability(bot=bot, char_id=char_id, user_id=discord_id)
+
+        async def char_skill_data_coro():
+            return await player_char.char_skill_data(bot=bot, char_id=char_id, user_id=discord_id)
+
+        # Use the defined coroutines in a list
+        functions = [char_sheet_ability_coro, char_skill_data_coro]
+        view = PageIntent(bot, functions, char_id, discord_id)
         await view.send_initial_message(ctx)
     except Exception as e:
         tb = traceback.format_exc()

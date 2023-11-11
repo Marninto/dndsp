@@ -10,7 +10,8 @@ import discord
 
 from embed_wrapper import EmbedMsg
 from constants import dnd_ability_map, skill_ability_map, dnd_class_proficiency_map
-from html_img_converter import render_and_capture_html
+from html_img_converter import render_and_capture_html, render_and_capture_html_with_cache
+from intent_interface import PageIntent
 from mapping import proficiency_map
 from model import check_onboard_status, check_player_chars, generate_quickbuild_character, get_score_modifier, \
     get_class_id_from_name, get_char_ability_details, fetch_race_ability_and_id_map, generate_custom_char, \
@@ -35,6 +36,9 @@ class PlayerChar:
         return msg.author == self.ctx.author and msg.channel == self.ctx.channel
 
     async def roll_build_char(self, bot, char_id, creation_stage):
+        if not self.character_data and char_id:
+            char_data = get_char_ability_details(char_id)
+            self.character_data = json.loads(char_data) if char_data else {}
         if char_id:
             self.char_id = char_id
         if creation_stage:
@@ -48,7 +52,16 @@ class PlayerChar:
         if self.creation_stage == 3:
             await self.generate_char_proficiency(bot)
         if self.creation_stage == 4:
-            self.char_sheet_ability(self.char_id)
+            async def char_sheet_ability_coro():
+                return await self.char_sheet_ability(bot=bot, char_id=char_id, user_id=self.ctx.author.id)
+
+            async def char_skill_data_coro():
+                return await self.char_skill_data(bot=bot, char_id=char_id, user_id=self.ctx.author.id)
+
+            # Use the defined coroutines in a list
+            functions = [char_sheet_ability_coro, char_skill_data_coro]
+            view = PageIntent(bot, functions, char_id, self.ctx.author.id)
+            await view.send_initial_message(self.ctx)
 
     # phase one makes the first entry in db. no update before this is permanent
     async def generate_char_phase_one(self, bot):
@@ -60,7 +73,7 @@ class PlayerChar:
         name = await bot.wait_for('message', check=check)
         character_name = name.content
 
-        character_data = {'name': character_name}
+        character_data = {'name': character_name, 'char_name': character_name}
         ability_list = list(dnd_ability_map.keys())
         ability_list.append('HP')
         # Rolling for abilities
@@ -84,20 +97,15 @@ class PlayerChar:
         race_ability_map, race_id_map = fetch_race_ability_and_id_map()
         data = self.categorize_races('INT', race_ability_map)
 
-        image_link_or_path = render_and_capture_html(data=data,
-                                                     cache=False, image_path=f'race_selection_{self.char_id}.png',
-                                                     template_path='html_templates/char_race.html', size=(600, 715))
+        image_link = await render_and_capture_html_with_cache(bot=bot, data=data, cache=True,
+                                                              image_path=f'INT_RACE_IMG.png',
+                                                              template_path='html_templates/char_race.html',
+                                                              size=(600, 715), cache_name="INT_RACE_IMG")
 
         # Sending the image in Discord embed
         embed = discord.Embed(title="Race Selection")
-        if os.path.exists(image_link_or_path):
-            file = discord.File(image_link_or_path, filename=f"background_selection_{self.char_id}.png")
-            embed.set_image(url=f"attachment://background_selection_{self.char_id}.png")
-            await self.ctx.send(file=file, embed=embed)
-            os.remove(image_link_or_path)
-        else:  # If it's a URL
-            embed.set_image(url=image_link_or_path)
-            await self.ctx.send(embed=embed)
+        embed.set_image(url=image_link)
+        await self.ctx.send(embed=embed)
 
         while True:
             try:
@@ -112,9 +120,9 @@ class PlayerChar:
                     self.character_data['race'] = matched_race
                     break
                 else:
-                    await self.ctx.send('Invalid input, please type a valid race.')
+                    await self.ctx.send(f'{self.ctx.author.mention} Invalid input, please type a valid race.')
             except asyncio.TimeoutError:
-                await self.ctx.send('No input received. Please try again')
+                await self.ctx.send(f'{self.ctx.author.mention} No input received. Please try again')
                 return
 
         update_char_gen_progress(self.char_id, "race_id", race_id_map[self.character_data['race']],
@@ -151,20 +159,15 @@ class PlayerChar:
         bg_ability_map, bg_id_map = fetch_bg_ability_and_id_map()
         data = self.categorize_backgrounds('INT', bg_ability_map)
 
-        image_link_or_path = render_and_capture_html(data=data,
-                                                     cache=False, image_path=f'background_selection_{self.char_id}.png',
-                                                     template_path='html_templates/char_bg.html', size=(600, 645))
+        image_link = await render_and_capture_html_with_cache(bot=bot, data=data, cache=True,
+                                                              image_path=f'INT_BG_IMG.png',
+                                                              template_path='html_templates/char_bg.html',
+                                                              size=(600, 645), cache_name="INT_BG_IMG")
 
         # Sending the image in Discord embed
         embed = discord.Embed(title="Background Selection")
-        if os.path.exists(image_link_or_path):
-            file = discord.File(image_link_or_path, filename=f"background_selection_{self.char_id}.png")
-            embed.set_image(url=f"attachment://background_selection_{self.char_id}.png")
-            await self.ctx.send(file=file, embed=embed)
-            os.remove(image_link_or_path)
-        else:  # If it's a URL
-            embed.set_image(url=image_link_or_path)
-            await self.ctx.send(embed=embed)
+        embed.set_image(url=image_link)
+        await self.ctx.send(embed=embed)
         try:
             bg_msg = await bot.wait_for('message', check=self.check, timeout=30)
 
@@ -181,58 +184,70 @@ class PlayerChar:
                                          self.creation_stage + 1)
                 self.creation_stage += 1
 
-                await self.ctx.send(f'Background Selected: {matched_bg}')
+                await self.ctx.send(f'Background selected for {self.character_data.get("char_name")}: {matched_bg}')
         except asyncio.TimeoutError:
-            await self.ctx.send('No input received. Please try again.')
+            await self.ctx.send(f'{self.ctx.author.mention} No input received. Please try again.')
         return
 
     async def generate_char_proficiency(self, bot):
-
         picked_proficiencies = []  # To store the picked proficiencies
-
-        while len(picked_proficiencies) < 2:
-            data = self.categorize_proficiencies(proficiency_map, picked_proficiencies)
-            data['picked_proficiencies'] = picked_proficiencies
-
-            image_path = render_and_capture_html(data=data, cache=False,
-                                                 image_path=f'prof_selection_{self.char_id}.png',
-                                                 template_path='html_templates/char_prof.html', size=(600, 645))
-
-            # Sending the image in Discord embed
-            embed = discord.Embed(title="Proficiency Selection")
-            file = discord.File(image_path, filename=f'prof_selection_{self.char_id}.png')
-            embed.set_image(url=f'attachment://prof_selection_{self.char_id}.png')
-            await self.ctx.send(file=file, embed=embed)
-
-            # Delete the image
-            os.remove(image_path)
-
-            try:
-                prof_msg = await bot.wait_for('message', check=self.check, timeout=30)
-                user_prof = prof_msg.content.strip().lower()
-
-                if user_prof == "random":
-                    new_proficiencies = random.sample(proficiency_map, 2 - len(picked_proficiencies))
-                    picked_proficiencies.extend(new_proficiencies)
-                else:
-                    matched_prof = next((prof for prof in proficiency_map.keys() if prof.lower() == user_prof), None)
-                    if matched_prof:
-                        picked_proficiencies.append(matched_prof)
-
-            except asyncio.TimeoutError:
-                await self.ctx.send('No input received. Please try again.')
-                return
         char_data_str = get_char_ability_details(self.char_id)
         char_data = json.loads(char_data_str)
         proficiencies = json.loads(char_data['picked_proficiencies'])
         picked_proficiencies.extend(proficiencies)
+
+        while len(picked_proficiencies) < 4:
+            data = self.categorize_proficiencies(picked_proficiencies)
+            picked_proficiencies_str = '_'.join(picked_proficiencies)
+
+            image_link = await render_and_capture_html_with_cache(bot=bot, data=data, cache=True,
+                                                                  image_path=f'{picked_proficiencies_str}_proficiency.png',
+                                                                  template_path='html_templates/char_prof.html',
+                                                                  size=(600, 520),
+                                                                  cache_name=picked_proficiencies_str + '_proficiency')
+
+            # Sending the image in Discord embed
+            embed = discord.Embed(title="Proficiency Selection")
+            embed.set_image(url=image_link)
+            await self.ctx.send(embed=embed)
+
+            try:
+                prof_msg = await bot.wait_for('message', check=self.check, timeout=30)
+                user_prof = prof_msg.content.strip().title()
+
+                if user_prof == "Random":
+                    new_proficiencies = random.sample(proficiency_map, 2 - len(picked_proficiencies))
+                    picked_proficiencies.extend(new_proficiencies)
+                else:
+
+                    matched_prof = next(
+                        (prof for prof in (data['recommended_proficiencies'] + data['other_proficiencies']) if
+                         prof == user_prof), None)
+                    if matched_prof and (matched_prof.title() not in picked_proficiencies):
+                        picked_proficiencies.append(matched_prof)
+                        data['recommended_proficiencies'] = [prof for prof in data['recommended_proficiencies'] if
+                                                             prof.title() != matched_prof.title()]
+                        data['other_proficiencies'] = [prof for prof in data['other_proficiencies'] if
+                                                       prof.title() != matched_prof.title()]
+                    elif not matched_prof:
+                        await self.ctx.send(
+                            f"{self.ctx.author.mention} The proficiency {user_prof} has already been picked. Please choose another.")
+                        continue
+                    else:
+                        await self.ctx.send(f'{self.ctx.author.mention} Please choose valid option')
+                        continue
+
+            except asyncio.TimeoutError:
+                await self.ctx.send(f'{self.ctx.author.mention} No input received. Please try again.')
+                return
+
         update_char_gen_progress(self.char_id, "picked_proficiencies", json.dumps(picked_proficiencies),
                                  self.creation_stage + 1)
         self.creation_stage += 1
-        await self.ctx.send('Final Proficiencies: ', ', '.join(picked_proficiencies))
+        await self.ctx.send('Final Proficiencies: ' + ', '.join(picked_proficiencies))
 
     @classmethod
-    def categorize_proficiencies(cls, proficiency_map, picked_proficiencies, recommended_ability='INT'):
+    def categorize_proficiencies(cls, picked_proficiencies, recommended_ability='INT'):
         recommended_proficiencies = []
         other_proficiencies = []
         picked = []
@@ -240,7 +255,7 @@ class PlayerChar:
         for proficiency in proficiency_map.keys():
             formatted_proficiency = proficiency.title()  # Title casing the proficiency
 
-            if proficiency.lower() in picked_proficiencies:
+            if proficiency in picked_proficiencies:
                 picked.append(formatted_proficiency)
             elif proficiency_map[proficiency] == recommended_ability:
                 recommended_proficiencies.append(formatted_proficiency)
@@ -276,8 +291,8 @@ class PlayerChar:
                 other_background_map[formatted_background] = formatted_abilities
 
         return {
-                "background_map": background_map,
-                "other_background_map": other_background_map
+            "background_map": background_map,
+            "other_background_map": other_background_map
         }
 
     def quick_build_char(self):
@@ -323,15 +338,17 @@ class PlayerChar:
             char_id = player_data['player_id']
         return char_id, player_data.get('creation_stage', 0)
 
-    def char_skill_data(self, char_id=None, user_id=None):
+    async def char_skill_data(self, bot, char_id=None, user_id=None):
         if char_id is None:
             char_id, _ = self.fetch_latest_char_id(user_id=user_id)
             if not char_id:
-                return "No character found", False
+                return "No character found"
         char_data = json.loads(get_char_ability_details(char_id))
 
         ability_map = json.loads(char_data['ability_map'])
-        ability_score_improve = json.loads(char_data['ability_score_improve']) if char_data['ability_score_improve'] and char_data['ability_score_improve']!="None" else {}
+        ability_score_improve = json.loads(char_data['ability_score_improve']) if char_data['ability_score_improve'] and \
+                                                                                  char_data[
+                                                                                      'ability_score_improve'] != "None" else {}
         ability_map_modifier = deepcopy(ability_map)
         for ability, modifier in ability_score_improve.items():
             ability_map_modifier[ability] += modifier
@@ -342,7 +359,8 @@ class PlayerChar:
         for skill, ability in skill_modifier_map.items():
             skill_modifier_map[skill] = ability_map_modifier[ability]
 
-        picked_proficiencies = json.loads(char_data['picked_proficiencies']) if char_data['picked_proficiencies'] else []
+        picked_proficiencies = json.loads(char_data['picked_proficiencies']) if char_data[
+            'picked_proficiencies'] else []
         proficiency_list = []
         if picked_proficiencies:
             proficiency_list = ast.literal_eval(char_data['proficiency_list'])
@@ -359,19 +377,21 @@ class PlayerChar:
             'race_name': char_data['race_name']
         }
         char_sheet = EmbedMsg().char_skill_info(**char_sheet_data)
-        return char_sheet, True
+        return char_sheet
 
-    def char_sheet_ability(self, char_id=None, user_id=None):
+    async def char_sheet_ability(self, bot, char_id=None, user_id=None):
         if char_id is None:
             char_id, _ = self.fetch_latest_char_id(user_id=user_id)
             if not char_id:
-                return discord.Embed(title=f'Create character using !create or view others char using !ci <char_id>'), False
+                return discord.Embed(
+                    title=f'Create character using !create or view others char using !ci <char_id>')
         char_data = get_char_ability_details(char_id)
         if not char_data:
-            return discord.Embed(title=f'Character id selected does not exist. Use !ci instead'), False
+            return discord.Embed(title=f'Character id selected does not exist. Use !ci instead')
         char_data = json.loads(char_data)
         ability_map = json.loads(char_data['ability_map'])
-        ability_score_improve = json.loads(char_data['ability_score_improve']) if char_data.get('ability_score_improve') else {}
+        ability_score_improve = json.loads(char_data['ability_score_improve']) if char_data.get(
+            'ability_score_improve') else {}
         ability_map_modifier = deepcopy(ability_map)
         for ability, modifier in ability_score_improve.items():
             ability_map_modifier[ability] += modifier
@@ -382,29 +402,35 @@ class PlayerChar:
         for skill, ability in skill_modifier_map.items():
             skill_modifier_map[skill] = ability_map_modifier[ability]
 
-        picked_proficiencies = json.loads(char_data['picked_proficiencies']) if char_data['picked_proficiencies'] else []
+        picked_proficiencies = json.loads(char_data['picked_proficiencies']) if char_data[
+            'picked_proficiencies'] else []
         proficiency_list = ast.literal_eval(char_data['proficiency_list']) if char_data['proficiency_list'] else []
-        print(picked_proficiencies, proficiency_list)
 
         for skill in (picked_proficiencies + proficiency_list):
             skill_modifier_map[skill] += 2
         saving_modifier_map = deepcopy(ability_map_modifier)
         for ability in ast.literal_eval(char_data['saving_throw_proficiency']):
             saving_modifier_map[ability] += 2
-        char_sheet_data = {
+        template_data = {
+            'Character_Name': char_data['char_name'].title(),
+            'Race_Class': f"{char_data['race_name']} {char_data['class_name']}",
+            'Background': char_data['bg_name'],
             'AC': 10 + ability_map_modifier['DEX'],
-            'name': char_data['char_name'],
-            'ability_map_modifier': ability_map_modifier,
-            'generation_type': 'Quick Build',
-            'saving_modifier_map': saving_modifier_map,
-            'bg_name': char_data['bg_name'],
-            'class_name': char_data['class_name'],
-            'pp': 10 + skill_modifier_map['Perception'],
-            'max_hp': char_data['max_hp'],
-            'race_name': char_data['race_name']
+            'Max_HP': char_data['max_hp'],
+            'Initiative': ability_map_modifier['DEX'],  # Assuming DEX modifier is used for initiative
+            'ability_map': ability_map_modifier,
+            'save_ability_map': saving_modifier_map,
+            'PATH_TO_IMAGE': "https://media.discordapp.net/attachments/1072097225058037782/1102567866869489674/fizban.jpg?width=330&height=520"
         }
-        char_sheet = EmbedMsg().char_ability_info(**char_sheet_data)
-        return char_sheet, True
+        image_link = await render_and_capture_html_with_cache(bot=bot, data=template_data, cache=True,
+                                                              image_path=f'char_sheet_{char_id}.png',
+                                                              template_path='html_templates/char_sheet.html',
+                                                              size=(600, 550),
+                                                              cache_name=f'char_sheet_{char_id}')
+
+        embed = discord.Embed()
+        embed.set_image(url=image_link)
+        return embed
 
 
 class CharacterRollButton(discord.ui.Button):
@@ -418,7 +444,7 @@ class CharacterRollButton(discord.ui.Button):
         if interaction.user != self.user:
             return
         if self.ability == 'HP':
-            roll_value = dice_roll(1, 6, self.character_data['CON'], 0, 0)[0]
+            roll_value = dice_roll(1, 6, math.floor(self.character_data['CON'] / 2) - 5, 0, 0)[0]
         else:
             dice_roll_value = dice_roll(4, 6, 0, 3, 0)
             roll_value = 0
@@ -440,11 +466,10 @@ class CharacterRollView(discord.ui.View):
         super().__init__(timeout=120)
         self.user = user
         for ability in abilities:
-            self.add_item(CharacterRollButton(ability=ability, character_data=character_data, user=user, custom_id=ability, label=f"Roll for {ability}", disabled=True if ability == 'HP' else False))
+            self.add_item(
+                CharacterRollButton(ability=ability, character_data=character_data, user=user, custom_id=ability,
+                                    label=f"Roll for {ability}", disabled=True if ability == 'HP' else False))
 
     async def wait_until_all_disabled(self):
         while not all(item.disabled for item in self.children):
             await asyncio.sleep(1)
-
-
-

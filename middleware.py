@@ -36,7 +36,7 @@ def normal_build_char_id(func):
             char_id, creation_stage = PlayerChar(ctx).fetch_latest_char_id(user_id=ctx.author.id)
             await func(ctx, build_type='normal', char_id=char_id, creation_stage=creation_stage)
         else:
-            return func(ctx, build_type, 0, 0)
+            await func(ctx, build_type, 0, 0)
 
     return wrapper
 

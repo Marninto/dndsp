@@ -84,6 +84,7 @@ def update_char_gen_progress(char_id, progress_state, progress_value, creation_s
     cursor.close()
     conn.close()
 
+
 def check_player_chars(discord_id):
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
@@ -296,3 +297,41 @@ def verify_char_for_user(discord_id, char_id):
     if result and result[0] == user_result[0]:
         return True, True, result[1]
     return True, False, 0
+
+
+def query_database_for_image(cache_name):
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor()
+
+    try:
+        # Prepare the SELECT statement to get the cache link and message
+        query = "SELECT cache_link, cache_msg FROM discord_cdn WHERE cache_name = %s"
+        cursor.execute(query, (cache_name,))
+
+        # Fetch the result
+        result = cursor.fetchone()
+        if result:
+            return result[0]
+        return result  # This will be None if no result is found
+    finally:
+        # Close the cursor and the connection
+        cursor.close()
+        conn.close()
+
+
+def insert_image_to_database(cache_name, cache_link, cache_msg):
+    # Create a new database connection
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor()
+
+    try:
+        # Prepare the INSERT statement
+        query = "INSERT INTO discord_cdn (cache_name, cache_link, cache_msg) VALUES (%s, %s, %s)"
+        cursor.execute(query, (cache_name, cache_link, cache_msg))
+
+        # Commit the transaction
+        conn.commit()
+    finally:
+        # Close the cursor and the connection
+        cursor.close()
+        conn.close()

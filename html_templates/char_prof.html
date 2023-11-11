@@ -83,12 +83,10 @@
 
             <div class="column picked">
                 {% if data.picked_proficiencies %}
-                <div class="subtitle">Picked Proficiencies</div>
-                <ul>
-                    {% for proficiency in data.picked_proficiencies %}
-                    <li>{{ proficiency }}</li>
-                    {% endfor %}
-                </ul>
+                <div class="subtitle">Current Proficiencies</div>
+                {% for proficiency in data.picked_proficiencies %}
+                <ul>{{ proficiency }}</ul>
+                {% endfor %}
                 {% endif %}
             </div>
         </div>

@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Medieval Character Sheet</title>
+    <style>
+        body {
+            font-family: 'Times New Roman', serif;
+            background-color: #f3e7c9;
+            color: #5c4832;
+        }
+
+        .character-card {
+            max-width: 600px;
+            margin: 20px auto;
+            padding: 10px;
+            background: linear-gradient(135deg, #f3e7c9, #e6d1ab, #f3e7c9);
+            border: 8px double #5c4832;
+            border-radius: 10px;
+            box-shadow: inset 0 0 15px #5c4832, inset 0 0 15px #5c4832, 0 0 15px #5c4832;
+        }
+
+        .character-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .character-image {
+            width: 80px;
+            height: 80px;
+            border: 2px solid #5c4832;
+            border-radius: 10px;
+        }
+
+        .character-title {
+            font-size: 22px;
+            font-weight: bold;
+        }
+
+        .character-subtitle, .background {
+            font-size: 14px;
+            font-style: italic;
+        }
+
+        .stat-grid, .abilities-grid, .saving-throws-grid {
+            display: grid;
+            gap: 5px;
+            margin-top: 10px;
+        }
+
+        .stat-grid {
+            grid-template-columns: repeat(3, 1fr);
+        }
+
+        .abilities-grid, .saving-throws-grid {
+            grid-template-columns: repeat(2, 1fr);
+            grid-template-rows: repeat(6, 1fr);
+        }
+
+        h2 {
+            font-size: 18px;
+            border-bottom: 1px solid #5c4832;
+            margin: 5px 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="character-card">
+        <div class="character-header">
+            <img src="{{ data.PATH_TO_IMAGE }}" alt="Character Image" class="character-image">
+            <div>
+                <div class="character-title">{{ data.Character_Name }}</div>
+                <div class="character-subtitle">{{ data.Race_Class }}</div>
+                <div class="background">{{ data.Background }}</div>
+            </div>
+        </div>
+
+        <div class="stat-grid">
+            <div><strong>AC:</strong> {{ data.AC }}</div>
+            <div><strong>Max HP:</strong> {{ data.Max_HP }}</div>
+            <div><strong>Initiative:</strong> {{ data.Initiative }}</div>
+        </div>
+
+        <h2>ABILITIES</h2>
+<div class="abilities-grid">
+    {% for ability, score in data.ability_map.items() %}
+        <div>{{ ability }}: {{ score }}</div>
+    {% endfor %}
+</div>
+
+<h2>SAVING THROWS</h2>
+<div class="saving-throws-grid">
+    {% for ability, score in data.save_ability_map.items() %}
+        <div>{{ ability }}: {{ score }}</div>
+    {% endfor %}
+</div>
+    </div>
+</body>
+
+</html>
