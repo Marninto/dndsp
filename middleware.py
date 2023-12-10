@@ -34,7 +34,10 @@ def normal_build_char_id(func):
             await func(ctx, build_type='normal', char_id=build_type, creation_stage=stage)
         elif build_type == 'normal':
             char_id, creation_stage = PlayerChar(ctx).fetch_latest_char_id(user_id=ctx.author.id)
-            await func(ctx, build_type='normal', char_id=char_id, creation_stage=creation_stage)
+            if creation_stage < 4:
+                await func(ctx, build_type='normal', char_id=char_id, creation_stage=creation_stage)
+            else:
+                await func(ctx, build_type, 0, 0)
         else:
             await func(ctx, build_type, 0, 0)
 

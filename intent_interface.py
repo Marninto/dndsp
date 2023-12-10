@@ -4,7 +4,6 @@ import discord
 from discord.ui import View
 
 
-
 class PageIntent(View):
     def __init__(self, bot, functions, char_id, user_id):
         super().__init__(timeout=60.0)

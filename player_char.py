@@ -8,6 +8,7 @@ from copy import deepcopy
 
 import discord
 
+from dropdown_select import SelectView
 from embed_wrapper import EmbedMsg
 from constants import dnd_ability_map, skill_ability_map, dnd_class_proficiency_map
 from html_img_converter import render_and_capture_html, render_and_capture_html_with_cache
@@ -96,6 +97,8 @@ class PlayerChar:
     async def generate_char_race(self, bot):
         race_ability_map, race_id_map = fetch_race_ability_and_id_map()
         data = self.categorize_races('INT', race_ability_map)
+        race_options = ['Random'] + list(data['race_map'].keys()) + list(data['other_race_map'].keys())
+        view = SelectView(self.ctx, race_options, self.ctx.author.id, "bg", "Select your Background")
 
         image_link = await render_and_capture_html_with_cache(bot=bot, data=data, cache=True,
                                                               image_path=f'INT_RACE_IMG.png',
@@ -105,32 +108,25 @@ class PlayerChar:
         # Sending the image in Discord embed
         embed = discord.Embed(title="Race Selection")
         embed.set_image(url=image_link)
-        await self.ctx.send(embed=embed)
+        await self.ctx.send(embed=embed, view=view)
 
-        while True:
-            try:
-                race_msg = await bot.wait_for('message', check=self.check, timeout=60)
-                user_race = race_msg.content.strip().lower()
-                if user_race == "random":
-                    matched_race = random.choice(list(race_ability_map.keys()))
-                else:
-                    matched_race = next((race for race in race_ability_map.keys() if race.lower() == user_race), None)
+        await view.wait()
 
-                if matched_race:
-                    self.character_data['race'] = matched_race
-                    break
-                else:
-                    await self.ctx.send(f'{self.ctx.author.mention} Invalid input, please type a valid race.')
-            except asyncio.TimeoutError:
-                await self.ctx.send(f'{self.ctx.author.mention} No input received. Please try again')
-                return
+        if view.selected_option:
+            matched_race = view.selected_option
+            if matched_race == "Random":
+                matched_race = random.choice(list(race_ability_map.keys()))
+            self.character_data['race'] = matched_race
+            update_char_gen_progress(self.char_id, "race_id", race_id_map[self.character_data['race']],
+                                     self.creation_stage)
+            update_char_gen_progress(self.char_id, "ability_score_improve",
+                                     json.loads(race_ability_map[self.character_data['race']]), self.creation_stage + 1)
+            self.creation_stage += 1
 
-        update_char_gen_progress(self.char_id, "race_id", race_id_map[self.character_data['race']],
-                                 self.creation_stage)
-        update_char_gen_progress(self.char_id, "ability_score_improve",
-                                 json.loads(race_ability_map[self.character_data['race']]), self.creation_stage + 1)
-        self.creation_stage += 1
-        await self.ctx.send(f'Race Selected: {self.character_data["race"]}')
+            await self.ctx.send(f'Race selected for {self.character_data.get("char_name")}: {matched_race}')
+            # Additional updates and responses
+        else:
+            await self.ctx.send(f'{self.ctx.author.mention} No input received. Please try again with !create')
 
     @classmethod
     def categorize_races(cls, ability, race_ability_map):
@@ -159,35 +155,35 @@ class PlayerChar:
         bg_ability_map, bg_id_map = fetch_bg_ability_and_id_map()
         data = self.categorize_backgrounds('INT', bg_ability_map)
 
+        # Create the dropdown view
+        bg_options = ['Random'] + list(data['background_map'].keys()) + list(data['other_background_map'].keys())
+        view = SelectView(self.ctx, bg_options, self.ctx.author.id, "bg", "Select your Background")
+
+        # Sending the image in Discord embed
+        embed = discord.Embed(title="Background Selection")
         image_link = await render_and_capture_html_with_cache(bot=bot, data=data, cache=True,
                                                               image_path=f'INT_BG_IMG.png',
                                                               template_path='html_templates/char_bg.html',
                                                               size=(600, 645), cache_name="INT_BG_IMG")
-
-        # Sending the image in Discord embed
-        embed = discord.Embed(title="Background Selection")
         embed.set_image(url=image_link)
-        await self.ctx.send(embed=embed)
-        try:
-            bg_msg = await bot.wait_for('message', check=self.check, timeout=30)
+        await self.ctx.send(embed=embed, view=view)
 
-            user_bg = bg_msg.content.strip().lower()
-            if user_bg == "random":
+        await view.wait()
+
+        if view.selected_option:
+            matched_bg = view.selected_option
+            if matched_bg == "Random":
                 matched_bg = random.choice(list(bg_ability_map.keys()))
-            else:
-                matched_bg = next((race for race in bg_ability_map.keys() if race.lower() == user_bg), None)
+            self.character_data['background'] = matched_bg
+            update_char_gen_progress(self.char_id, "background_id", bg_id_map[matched_bg], self.creation_stage)
+            update_char_gen_progress(self.char_id, "picked_proficiencies", json.dumps(bg_ability_map[matched_bg]),
+                                     self.creation_stage + 1)
+            self.creation_stage += 1
 
-            if matched_bg:
-                self.character_data['background'] = matched_bg
-                update_char_gen_progress(self.char_id, "background_id", bg_id_map[matched_bg], self.creation_stage)
-                update_char_gen_progress(self.char_id, "picked_proficiencies", json.dumps(bg_ability_map[matched_bg]),
-                                         self.creation_stage + 1)
-                self.creation_stage += 1
-
-                await self.ctx.send(f'Background selected for {self.character_data.get("char_name")}: {matched_bg}')
-        except asyncio.TimeoutError:
-            await self.ctx.send(f'{self.ctx.author.mention} No input received. Please try again.')
-        return
+            await self.ctx.send(f'Background selected for {self.character_data.get("char_name")}: {matched_bg}')
+            # Additional updates and responses
+        else:
+            await self.ctx.send(f'{self.ctx.author.mention} No input received. Please try again with !create')
 
     async def generate_char_proficiency(self, bot):
         picked_proficiencies = []  # To store the picked proficiencies
@@ -195,10 +191,15 @@ class PlayerChar:
         char_data = json.loads(char_data_str)
         proficiencies = json.loads(char_data['picked_proficiencies'])
         picked_proficiencies.extend(proficiencies)
+        turn = 1
 
         while len(picked_proficiencies) < 4:
             data = self.categorize_proficiencies(picked_proficiencies)
-            picked_proficiencies_str = '_'.join(picked_proficiencies)
+            prof_options = ['Random'] + data['recommended_proficiencies'] + data['other_proficiencies']
+            view = SelectView(self.ctx, prof_options, self.ctx.author.id, "proficiency", "Select your Proficiency")
+            picked_proficiencies_str = '_'.join(sorted(picked_proficiencies))
+            if len(picked_proficiencies) == 3:
+                turn = 2
 
             image_link = await render_and_capture_html_with_cache(bot=bot, data=data, cache=True,
                                                                   image_path=f'{picked_proficiencies_str}_proficiency.png',
@@ -207,38 +208,24 @@ class PlayerChar:
                                                                   cache_name=picked_proficiencies_str + '_proficiency')
 
             # Sending the image in Discord embed
-            embed = discord.Embed(title="Proficiency Selection")
+            embed = discord.Embed(title=f"Proficiency Selection {turn}/2")
             embed.set_image(url=image_link)
-            await self.ctx.send(embed=embed)
+            await self.ctx.send(embed=embed, view=view)
 
+            await view.wait()
             try:
-                prof_msg = await bot.wait_for('message', check=self.check, timeout=30)
-                user_prof = prof_msg.content.strip().title()
-
-                if user_prof == "Random":
-                    new_proficiencies = random.sample(proficiency_map, 2 - len(picked_proficiencies))
-                    picked_proficiencies.extend(new_proficiencies)
-                else:
-
-                    matched_prof = next(
-                        (prof for prof in (data['recommended_proficiencies'] + data['other_proficiencies']) if
-                         prof == user_prof), None)
-                    if matched_prof and (matched_prof.title() not in picked_proficiencies):
-                        picked_proficiencies.append(matched_prof)
-                        data['recommended_proficiencies'] = [prof for prof in data['recommended_proficiencies'] if
-                                                             prof.title() != matched_prof.title()]
-                        data['other_proficiencies'] = [prof for prof in data['other_proficiencies'] if
-                                                       prof.title() != matched_prof.title()]
-                    elif not matched_prof:
-                        await self.ctx.send(
-                            f"{self.ctx.author.mention} The proficiency {user_prof} has already been picked. Please choose another.")
-                        continue
-                    else:
-                        await self.ctx.send(f'{self.ctx.author.mention} Please choose valid option')
-                        continue
+                if view.selected_option:
+                    matched_prof = view.selected_option
+                    if matched_prof == "Random":
+                        matched_prof = random.choice(prof_options)
+                    picked_proficiencies.append(matched_prof)
+                    data['recommended_proficiencies'] = [prof for prof in data['recommended_proficiencies'] if
+                                                         prof.title() != matched_prof.title()]
+                    data['other_proficiencies'] = [prof for prof in data['other_proficiencies'] if
+                                                   prof.title() != matched_prof.title()]
 
             except asyncio.TimeoutError:
-                await self.ctx.send(f'{self.ctx.author.mention} No input received. Please try again.')
+                await self.ctx.send(f'{self.ctx.author.mention} No input received. Please try again with !create')
                 return
 
         update_char_gen_progress(self.char_id, "picked_proficiencies", json.dumps(picked_proficiencies),
